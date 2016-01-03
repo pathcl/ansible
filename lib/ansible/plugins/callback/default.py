@@ -21,6 +21,7 @@ __metaclass__ = type
 
 from ansible import constants as C
 from ansible.plugins.callback import CallbackBase
+from ansible.utils.color import colorize, hostcolor
 
 class CallbackModule(CallbackBase):
 
@@ -61,6 +62,7 @@ class CallbackModule(CallbackBase):
 
     def v2_runner_on_ok(self, result):
 
+        self._clean_results(result._result, result._task.action)
         delegated_vars = result._result.get('_ansible_delegated_vars', None)
         if result._task.action == 'include':
             return
@@ -133,7 +135,14 @@ class CallbackModule(CallbackBase):
         self._display.banner(msg)
 
     def v2_on_file_diff(self, result):
-        if 'diff' in result._result and result._result['diff']:
+        if result._task.loop and 'results' in result._result:
+            for res in result._result['results']:
+                newres = self._copy_result(result)
+                res['item'] = self._get_item(res)
+                newres._result = res
+
+                self.v2_on_file_diff(newres)
+        elif 'diff' in result._result and result._result['diff']:
             self._display.display(self._get_diff(result._result['diff']))
 
     def v2_playbook_item_on_ok(self, result):
@@ -192,4 +201,31 @@ class CallbackModule(CallbackBase):
         msg = 'included: %s for %s' % (included_file._filename, ", ".join([h.name for h in included_file._hosts]))
         color = 'cyan'
         self._display.display(msg, color='cyan')
+
+    def v2_playbook_on_stats(self, stats):
+        self._display.banner("PLAY RECAP")
+
+        hosts = sorted(stats.processed.keys())
+        for h in hosts:
+            t = stats.summarize(h)
+
+            self._display.display(u"%s : %s %s %s %s" % (
+                hostcolor(h, t),
+                colorize(u'ok', t['ok'], 'green'),
+                colorize(u'changed', t['changed'], 'yellow'),
+                colorize(u'unreachable', t['unreachable'], 'red'),
+                colorize(u'failed', t['failures'], 'red')),
+                screen_only=True
+            )
+
+            self._display.display(u"%s : %s %s %s %s" % (
+                hostcolor(h, t, False),
+                colorize(u'ok', t['ok'], None),
+                colorize(u'changed', t['changed'], None),
+                colorize(u'unreachable', t['unreachable'], None),
+                colorize(u'failed', t['failures'], None)),
+                log_only=True
+            )
+
+        self._display.display("", screen_only=True)
 

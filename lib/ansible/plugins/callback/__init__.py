@@ -59,6 +59,21 @@ class CallbackBase:
             version = getattr(self, 'CALLBACK_VERSION', '1.0')
             self._display.vvvv('Loaded callback %s of type %s, v%s' % (name, ctype, version))
 
+    ''' helper for callbacks, so they don't all have to include deepcopy '''
+    _copy_result = deepcopy
+
+    def _copy_result_exclude(self, result, exclude):
+        values = []
+        for e in exclude:
+            values.append(getattr(result, e))
+            setattr(result, e, None)
+
+        result_copy = deepcopy(result)
+        for i,e in enumerate(exclude):
+            setattr(result, e, values[i])
+
+        return result_copy
+
     def _dump_results(self, result, indent=None, sort_keys=True, keep_invocation=False):
         if result.get('_ansible_no_log', False):
             return json.dumps(dict(censored="the output has been hidden due to the fact that 'no_log: true' was specified for this result"))
@@ -126,7 +141,7 @@ class CallbackBase:
 
     def _process_items(self, result):
         for res in result._result['results']:
-            newres = deepcopy(result)
+            newres = self._copy_result_exclude(result, ['_result'])
             res['item'] = self._get_item(res)
             newres._result = res
             if 'failed' in res and res['failed']:
@@ -135,6 +150,12 @@ class CallbackBase:
                 self.v2_playbook_item_on_skipped(newres)
             else:
                 self.v2_playbook_item_on_ok(newres)
+
+    def _clean_results(self, result, task_name):
+        if 'changed' in result and task_name in ['debug']:
+            del result['changed']
+        if 'invocation' in result and task_name in ['debug']:
+            del result['invocation']
 
     def set_play_context(self, play_context):
         pass
@@ -246,7 +267,7 @@ class CallbackBase:
     def v2_runner_on_file_diff(self, result, diff):
         pass #no v1 correspondance
 
-    def v2_playbook_on_start(self):
+    def v2_playbook_on_start(self, playbook):
         self.playbook_on_start()
 
     def v2_playbook_on_notify(self, result, handler):
@@ -304,3 +325,12 @@ class CallbackBase:
 
     def v2_playbook_on_include(self, included_file):
         pass #no v1 correspondance
+
+    def v2_playbook_item_on_ok(self, result):
+        pass
+
+    def v2_playbook_item_on_failed(self, result):
+        pass
+
+    def v2_playbook_item_on_skipped(self, result):
+        pass

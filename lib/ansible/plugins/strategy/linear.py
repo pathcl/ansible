@@ -54,7 +54,8 @@ class StrategyModule(StrategyBase):
         host_tasks = {}
         display.debug("building list of next tasks for hosts")
         for host in hosts:
-            host_tasks[host.name] = iterator.get_next_task_for_host(host, peek=True)
+            if not iterator.is_failed(host):
+                host_tasks[host.name] = iterator.get_next_task_for_host(host, peek=True)
         display.debug("done building task lists")
 
         num_setups = 0
@@ -98,7 +99,7 @@ class StrategyModule(StrategyBase):
             rvals = []
             display.debug("starting to advance hosts")
             for host in hosts:
-                host_state_task = host_tasks[host.name]
+                host_state_task = host_tasks.get(host.name)
                 if host_state_task is None:
                     continue
                 (s, t) = host_state_task
@@ -169,6 +170,7 @@ class StrategyModule(StrategyBase):
                 skip_rest   = False
                 choose_step = True
 
+                results = []
                 for (host, task) in host_tasks:
                     if not task:
                         continue
@@ -243,12 +245,14 @@ class StrategyModule(StrategyBase):
                     if run_once:
                         break
 
+                    results += self._process_pending_results(iterator, one_pass=True)
+
                 # go to next host/task group
                 if skip_rest:
                     continue
 
                 display.debug("done queuing things up, now waiting for results queue to drain")
-                results = self._wait_on_pending_results(iterator)
+                results += self._wait_on_pending_results(iterator)
                 host_results.extend(results)
 
                 if not work_to_do and len(iterator.get_failed_hosts()) > 0:
@@ -258,8 +262,14 @@ class StrategyModule(StrategyBase):
                     break
 
                 try:
-                    included_files = IncludedFile.process_include_results(host_results, self._tqm,
-                            iterator=iterator, loader=self._loader, variable_manager=self._variable_manager)
+                    included_files = IncludedFile.process_include_results(
+                        host_results,
+                        self._tqm,
+                        iterator=iterator,
+                        inventory=self._inventory,
+                        loader=self._loader,
+                        variable_manager=self._variable_manager
+                    )
                 except AnsibleError as e:
                     return False
 

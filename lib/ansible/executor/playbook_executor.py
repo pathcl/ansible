@@ -31,7 +31,6 @@ from ansible.executor.task_queue_manager import TaskQueueManager
 from ansible.playbook import Playbook
 from ansible.template import Templar
 
-from ansible.utils.color import colorize, hostcolor
 from ansible.utils.encrypt import do_encrypt
 from ansible.utils.unicode import to_unicode
 
@@ -83,6 +82,10 @@ class PlaybookExecutor:
                 if self._tqm is None: # we are doing a listing
                     entry = {'playbook': playbook_path}
                     entry['plays'] = []
+                else:
+                    # make sure the tqm has callbacks loaded
+                    self._tqm.load_callbacks()
+                    self._tqm.send_callback('v2_playbook_on_start', pb)
 
                 i = 1
                 plays = pb.get_plays()
@@ -111,7 +114,10 @@ class PlaybookExecutor:
                             if vname not in play.vars:
                                 if self._tqm:
                                     self._tqm.send_callback('v2_playbook_on_vars_prompt', vname, private, prompt, encrypt, confirm, salt_size, salt, default)
-                                play.vars[vname] = self._do_var_prompt(vname, private, prompt, encrypt, confirm, salt_size, salt, default)
+                                if self._options.syntax:
+                                    play.vars[vname] = default
+                                else:
+                                    play.vars[vname] = self._do_var_prompt(vname, private, prompt, encrypt, confirm, salt_size, salt, default)
 
                     # Create a temporary copy of the play here, so we can run post_validate
                     # on it without the templating changes affecting the original object.
@@ -128,8 +134,6 @@ class PlaybookExecutor:
                         entry['plays'].append(new_play)
 
                     else:
-                        # make sure the tqm has callbacks loaded
-                        self._tqm.load_callbacks()
                         self._tqm._unreachable_hosts.update(self._unreachable_hosts)
 
                         # we are actually running plays
@@ -171,6 +175,10 @@ class PlaybookExecutor:
                 if entry:
                     entrylist.append(entry) # per playbook
 
+                # send the stats callback for this playbook
+                if self._tqm is not None:
+                    self._tqm.send_callback('v2_playbook_on_stats', self._tqm._stats)
+
                 # if the last result wasn't zero, break out of the playbook file name loop
                 if result != 0:
                     break
@@ -185,35 +193,6 @@ class PlaybookExecutor:
         if self._options.syntax:
             display.display("No issues encountered")
             return result
-
-        # TODO: this stat summary stuff should be cleaned up and moved
-        #        to a new method, if it even belongs here...
-        display.banner("PLAY RECAP")
-
-        hosts = sorted(self._tqm._stats.processed.keys())
-        for h in hosts:
-            t = self._tqm._stats.summarize(h)
-
-            display.display(u"%s : %s %s %s %s" % (
-                hostcolor(h, t),
-                colorize(u'ok', t['ok'], 'green'),
-                colorize(u'changed', t['changed'], 'yellow'),
-                colorize(u'unreachable', t['unreachable'], 'red'),
-                colorize(u'failed', t['failures'], 'red')),
-                screen_only=True
-            )
-
-            display.display(u"%s : %s %s %s %s" % (
-                hostcolor(h, t, False),
-                colorize(u'ok', t['ok'], None),
-                colorize(u'changed', t['changed'], None),
-                colorize(u'unreachable', t['unreachable'], None),
-                colorize(u'failed', t['failures'], None)),
-                log_only=True
-            )
-
-        display.display("", screen_only=True)
-        # END STATS STUFF
 
         return result
 

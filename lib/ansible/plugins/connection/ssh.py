@@ -60,7 +60,6 @@ class Connection(ConnectionBase):
     # management here.
 
     def _connect(self):
-        self._connected = True
         return self
 
     @staticmethod
@@ -284,7 +283,7 @@ class Connection(ConnectionBase):
         for l in chunk.splitlines(True):
             suppress_output = False
 
-            # display.debug("Examining line (source=%s, state=%s): '%s'" % (source, state, l.rstrip('\r\n')))
+            #display.debug("Examining line (source=%s, state=%s): '%s'" % (source, state, l.rstrip('\r\n')))
             if self._play_context.prompt and self.check_password_prompt(l):
                 display.debug("become_prompt: (source=%s, state=%s): '%s'" % (source, state, l.rstrip('\r\n')))
                 self._flags['become_prompt'] = True
@@ -320,7 +319,7 @@ class Connection(ConnectionBase):
         Starts the command and communicates with it until it ends.
         '''
 
-        display_cmd = map(pipes.quote, cmd[:-1]) + [cmd[-1]]
+        display_cmd = map(pipes.quote, cmd)
         display.vvv('SSH: EXEC {0}'.format(' '.join(display_cmd)), host=self.host)
 
         # Start the given command. If we don't need to pipeline data, we can try
@@ -458,12 +457,17 @@ class Connection(ConnectionBase):
                 tmp_stdout = tmp_stderr = ''
 
             # If we see a privilege escalation prompt, we send the password.
+            # (If we're expecting a prompt but the escalation succeeds, we
+            # didn't need the password and can carry on regardless.)
 
-            if states[state] == 'awaiting_prompt' and self._flags['become_prompt']:
-                display.debug('Sending become_pass in response to prompt')
-                stdin.write(self._play_context.become_pass + '\n')
-                self._flags['become_prompt'] = False
-                state += 1
+            if states[state] == 'awaiting_prompt':
+                if self._flags['become_prompt']:
+                    display.debug('Sending become_pass in response to prompt')
+                    stdin.write('{0}\n'.format(to_bytes(self._play_context.become_pass )))
+                    self._flags['become_prompt'] = False
+                    state += 1
+                elif self._flags['become_success']:
+                    state += 1
 
             # We've requested escalation (with or without a password), now we
             # wait for an error message or a successful escalation.
