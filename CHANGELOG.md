@@ -3,12 +3,29 @@ Ansible Changes By Release
 
 ## 2.1 TBD - ACTIVE DEVELOPMENT
 
+###Major Changes:
+
+* added facility for modules to send back 'diff' for display when ansible is called with --diff, updated several modules to return this info
+
 ####New Modules:
+* aws: ec2_vol_facts
+* aws: ec2_vpc_dhcp_options.py
 * aws: ec2_vpc_net_facts
 * cloudstack: cs_volume
+* yumrepo
 
 ####New Filters:
 * extract
+
+####New Callbacks:
+* actionable (only shows changed and failed)
+* slack
+* json
+
+###Minor Changes:
+
+* callbacks now have access to the options with which the CLI was called
+* debug is now controlable with verbosity
 
 ## 2.0 "Over the Hills and Far Away"
 
@@ -35,7 +52,8 @@ Ansible Changes By Release
   This re-executes inventory scripts, but does not force them to ignore any cache they might use.
 * New delegate_facts directive, a boolean that allows you to apply facts to the delegated host (true/yes) instead of the inventory_hostname (no/false) which is the default and previous behaviour.
 * local connections now work with 'su' as a privilege escalation method
-* New ssh configuration variables(`ansible_ssh_common_args`, `ansible_ssh_extra_args`) can be used to configure a
+* Ansible 2.0 has deprecated the “ssh” from ansible_ssh_user, ansible_ssh_host, and ansible_ssh_port to become ansible_user, ansible_host, and ansible_port.
+* New ssh configuration variables (`ansible_ssh_common_args`, `ansible_ssh_extra_args`) can be used to configure a
   per-group or per-host ssh ProxyCommand or set any other ssh options.
   `ansible_ssh_extra_args` is used to set options that are accepted only by ssh (not sftp or scp, which have their own analogous settings).
 * ansible-pull can now verify the code it runs when using git as a source repository, using git's code signing and verification features.
@@ -129,6 +147,7 @@ allowed in future versions:
 * amazon: ec2_remote_facts
 * amazon: ec2_vpc_igw
 * amazon: ec2_vpc_net
+* amazon: ec2_vpc_net_facts
 * amazon: ec2_vpc_route_table
 * amazon: ec2_vpc_route_table_facts
 * amazon: ec2_vpc_subnet
@@ -295,17 +314,22 @@ allowed in future versions:
 * webfaction_mailbox
 * webfaction_site
 * win_acl
+* win_dotnet_ngen
 * win_environment
 * win_firewall_rule
-* win_package
-* win_scheduled_task
 * win_iis_virtualdirectory
 * win_iis_webapplication
 * win_iis_webapppool
 * win_iis_webbinding
 * win_iis_website
+* win_lineinfile
+* win_nssm
+* win_package
 * win_regedit
+* win_scheduled_task
 * win_unzip
+* win_updates
+* win_webpicmd
 * xenserver_facts
 * zabbix_host
 * zabbix_hostmacro
@@ -350,7 +374,7 @@ allowed in future versions:
 * Consolidated code from modules using urllib2 to normalize features, TLS and SNI support.
 * synchronize module's dest_port parameter now takes precedence over the ansible_ssh_port inventory setting.
 * Play output is now dynamically sized to terminal with a minimum of 80 coluumns (old default).
-* vars_prompt and pause are now skipped with a warning if the play is called non interactively (i.e. pull from cron).
+* vars_prompt and pause are now skipped with a warning if the play is called noninteractively (i.e. pull from cron).
 * Support for OpenBSD's 'doas' privilege escalation method.
 * Most vault operations can now be done over multilple files.
 * ansible-vault encrypt/decrypt read from stdin if no other input file is given, and can write to a given ``--output file`` (including stdout, '-').
@@ -361,15 +385,15 @@ allowed in future versions:
 * Many fixes and new options added to modules, too many to list here.
 * Now you can see task file and line number when using verbosity of 3 or above.
 * The ``[x-y]`` host range syntax is no longer supported. Note that ``[0:1]`` matches two hosts, i.e. the range is inclusive of its endpoints.
-* We now recommend the Use `pattern1,pattern2` to combine host matching patterns.
+* We now recommend the use of `pattern1,pattern2` to combine host matching patterns.
   * The use of ':' as a separator conflicts with IPv6 addresses and host ranges. It will be deprecated in the future.
   * The undocumented use of ';' as a separator is now deprecated.
 * modules and callbacks have been extended to support no_log to avoid data disclosure.
-* new managed_syslog option has been added to control output to syslog on managed machines, no_log supercsedes this settings.
+* new managed_syslog option has been added to control output to syslog on managed machines, no_log supersedes this settings.
 * Lookup, vars and action plugin pathing has been normalized, all now follow the same sequence to find relative files.
 * We do not ignore the explicitly set login user for ssh when it matches the 'current user' anymore, this allows overriding .ssh/config when it is set
   explicitly. Leaving it unset will still use the same user and respect .ssh/config. This also means ansible_ssh_user can now return a None value.
-* environment variables passed to remote shells now default to 'controller' settings, with fallback to en_us.UTF8 which was the previous default.
+* environment variables passed to remote shells now default to 'controller' settings, with fallback to en_US.UTF8 which was the previous default.
 * add_hosts is much stricter about host name and will prevent invalid names from being added.
 * ansible-pull now defaults to doing shallow checkouts with git, use `--full` to return to previous behaviour.
 * random cows are more random

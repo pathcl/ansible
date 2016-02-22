@@ -259,8 +259,6 @@ class VariableManager:
             except KeyError:
                 pass
 
-        all_vars['vars'] = all_vars.copy()
-
         if play:
             all_vars = combine_vars(all_vars, play.get_vars())
 
@@ -343,6 +341,8 @@ class VariableManager:
             all_vars['ansible_delegated_vars'] = self._get_delegated_vars(loader, play, task, all_vars)
 
         #VARIABLE_CACHE[cache_entry] = all_vars
+        if task or play:
+            all_vars['vars'] = all_vars.copy()
 
         debug("done with get_vars()")
         return all_vars
@@ -600,8 +600,10 @@ class VariableManager:
         '''
         Sets a value in the vars_cache for a host.
         '''
-
         host_name = host.get_name()
         if host_name not in self._vars_cache:
             self._vars_cache[host_name] = dict()
-        self._vars_cache[host_name][varname] = value
+        if varname in self._vars_cache[host_name]:
+            self._vars_cache[host_name][varname] = combine_vars(self._vars_cache[host_name][varname], value)
+        else:
+            self._vars_cache[host_name][varname] = value

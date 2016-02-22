@@ -256,10 +256,7 @@ Developers: Supported modules and how it works
 Developing Ansible modules are covered in a `later section of the documentation <http://docs.ansible.com/developing_modules.html>`_, with a focus on Linux/Unix.
 What if you want to write Windows modules for Ansible though?
 
-For Windows, Ansible modules are implemented in PowerShell.  Skim those Linux/Unix module development chapters before proceeding.
-
-Windows modules live in a "windows/" subfolder in the Ansible "library/" subtree.  For example, if a module is named
-"library/windows/win_ping", there will be embedded documentation in the "win_ping" file, and the actual PowerShell code will live in a "win_ping.ps1" file.  Take a look at the sources and this will make more sense.
+For Windows, Ansible modules are implemented in PowerShell.  Skim those Linux/Unix module development chapters before proceeding. Windows modules in the core and extras repo live in a "windows/" subdir. Custom modules can go directly into the Ansible "library/" directories or those added in ansible.cfg. Documentation lives in a `.py` file with the same name. For example, if a module is named "win_ping", there will be embedded documentation in the "win_ping.py" file, and the actual PowerShell code will live in a "win_ping.ps1" file. Take a look at the sources and this will make more sense.
 
 Modules (ps1 files) should start as follows::
 
@@ -321,6 +318,14 @@ Running individual commands uses the 'raw' module, as opposed to the shell or co
           raw: ipconfig
           register: ipconfig
         - debug: var=ipconfig
+
+Running common DOS commands like 'del", 'move', or 'copy" is unlikely to work on a remote Windows Server using Powershell, but they can work by prefacing the commands with "CMD /C" and enclosing the command in double quotes as in this example::
+
+    - name: another raw module example
+      hosts: windows
+      tasks:
+         - name: Move file on remote Windows Server from one location to another
+           raw: CMD /C "MOVE /Y C:\teststuff\myfile.conf C:\builds\smtp.conf"
 
 And for a final example, here's how to use the win_stat module to test for file existence.  Note that the data returned by the win_stat module is slightly different than what is provided by the Linux equivalent::
 

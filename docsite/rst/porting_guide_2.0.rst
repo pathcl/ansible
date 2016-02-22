@@ -56,7 +56,7 @@ uses key=value escaping which has not changed.  The other option is to check for
     "msg": "Testing some things"
 
 * When specifying complex args as a variable, the variable must use the full jinja2
-  variable syntax ('{{var_name}}') - bare variable names there are no longer accepted.
+  variable syntax (```{{var_name}}```) - bare variable names there are no longer accepted.
   In fact, even specifying args with variables has been deprecated, and will not be
   allowed in future versions::
 
@@ -71,7 +71,7 @@ uses key=value escaping which has not changed.  The other option is to check for
       tasks:
         - file:
           args: "{{item}}" # <- args here uses the full variable syntax
-          with_items: my_dirs
+          with_items: "{{my_dirs}}"
 
 * porting task includes
 * More dynamic. Corner-case formats that were not supposed to work now do not, as expected.
@@ -92,7 +92,7 @@ While all items listed here will show a deprecation warning message, they still 
 * Bare variables in `with_` loops should instead use the “{{var}}” syntax, which helps eliminate ambiguity.
 * The ansible-galaxy text format requirements file. Users should use the YAML format for requirements instead.
 * Undefined variables within a `with_` loop’s list currently do not interrupt the loop, but they do issue a warning; in the future, they will issue an error.
-* Using variables for task parameters is unsafe and will be removed in a future version. For example::
+* Using dictionary variables to set all task parameters is unsafe and will be removed in a future version. For example::
 
     - hosts: localhost
       gather_facts: no
@@ -100,7 +100,14 @@ While all items listed here will show a deprecation warning message, they still 
         debug_params:
           msg: "hello there"
       tasks:
+        # These are both deprecated:
         - debug: "{{debug_params}}"
+        - debug:
+          args: "{{debug_params}}"
+
+        # Use this instead:
+        - debug:
+            msg: "{{debug_params['msg']}}"
 
 * Host patterns should use a comma (,) or colon (:) instead of a semicolon (;) to separate hosts/groups in the pattern.
 * Ranges specified in host patterns should use the [x:y] syntax, instead of [x-y].
@@ -119,12 +126,12 @@ While all items listed here will show a deprecation warning message, they still 
 Should now be::
 
     - include: foo.yml
-      args:
+      vars:
         a: 1
 
 * Setting any_errors_fatal on a task is no longer supported. This should be set at the play level only.
 * Bare variables in the `environment` dictionary (for plays/tasks/etc.) are no longer supported. Variables specified there should use the full variable syntax: ‘{{foo}}’.
-* Tags should no longer be specified with other parameters in a task include. Instead, they should be specified as an option on the task.
+* Tags (or any directive) should no longer be specified with other parameters in a task include. Instead, they should be specified as an option on the task.
   For example::
 
     - include: foo.yml tags=a,b,c
@@ -136,6 +143,58 @@ Should now be::
 
 * The first_available_file option on tasks has been deprecated. Users should use the with_first_found option or lookup (‘first_found’, …) plugin.
 
+
+Other caveats
+-------------
+
+Here are some corner cases encountered when updating, these are mostly caused by the more stringent parser validation and the capture of errors that were previouslly ignored.
+
+* Bad variable composition::
+
+    with_items: myvar_{{rest_of_name}}
+
+  This worked 'by accident' as the errors were retemplated and ended up resolving the variable, it was never intended as valid syntax and now properly returns an error, use the following instead.::
+
+    with_items: "{{vars['myvar_' + res_of_name]}}"
+
+  Or `hostvars[inventory_hostname]['myvar_' + rest_of_name]` if appropriate.
+
+* Misspelled directives::
+
+    - task: dostuf
+      becom: yes
+  The task always ran without using privilege escalation (for that you need `become`) but was also silently ignored so the play 'ran' even though it should not, now this is a parsing error.
+
+
+* Duplicate directives::
+
+    - task: dostuf
+      when: True
+      when: False
+
+  The first `when` was ignored and only the 2nd one was used as the play ran w/o warning it was ignoring one of the directives, now this produces a parsing error.
+
+* Conflating variables and directives::
+
+    - role: {name=rosy, port=435 }
+
+    # in tasks/main.yml
+    - wait_for: port={{port}}
+
+  The `port` variable is reserved as a play/task directive for overriding the connection port, in previous versions this got conflated with a variable named `port` and was usable
+  later in the play, this created issues if a host tried to reconnect or was using a non caching connection. Now it will be correctly identified as a directive and the `port` variable
+  will appear as undefined, this now forces the use of non conflicting names and removes ambiguity when adding settings and varaibles to a role invocation..
+
+* Bare operations on `with_`::
+
+    with_items: var1 + var2
+
+  An issue with the 'bare variable' features, which was supposed only tempate a single variable without the need of braces ({{ )}}, would in some versions of Ansible template full expressions.
+  Now you need to use proper templating and braces for all expressions everywhere except condtionals (`when`)::
+
+    with_items: "{{var1 + var2}}"
+
+  The bare feature itself is deprecated as an undefined variable is indistiguishable from a string which makes it difficult to display a proper error.
 
 Porting plugins
 ===============
@@ -161,7 +220,33 @@ Action plugins
 Callback plugins
 ----------------
 
-* callback plugins
+Although Ansible 2.0 provides a new callback API the old one continues to work
+for most callback plugins.  However, if your callback plugin makes use of
+:attr:`self.playbook`, :attr:`self.play`, or :attr:`self.task` then you will
+have to store the values for these yourself as ansible no longer automatically
+populates the callback with them.  Here's a short snippet that shows you how::
+
+    from ansible.plugins.callback import CallbackBase
+
+    class CallbackModule(CallbackBase):
+        def __init__(self):
+            self.playbook = None
+            self.play = None
+            self.task = None
+
+        def v2_playbook_on_start(self, playbook):
+            self.playbook = playbook
+
+        def v2_playbook_on_play_start(self, play):
+            self.play = play
+
+        def v2_playbook_on_task_start(self, task, is_conditional):
+            self.task = task
+
+        def v2_on_any(self, *args, **kwargs):
+            self._display.display('%s: %s: %s' % (self.playbook.name,
+            self.play.name, self.task))
+
 
 Connection plugins
 ------------------
@@ -174,3 +259,4 @@ Porting custom scripts
 
 Custom scripts that used the ``ansible.runner.Runner`` API in 1.x have to be ported in 2.x.  Please refer to:
 https://github.com/ansible/ansible/blob/devel/docsite/rst/developing_api.rst
+

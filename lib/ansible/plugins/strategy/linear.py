@@ -54,8 +54,7 @@ class StrategyModule(StrategyBase):
         host_tasks = {}
         display.debug("building list of next tasks for hosts")
         for host in hosts:
-            if not iterator.is_failed(host):
-                host_tasks[host.name] = iterator.get_next_task_for_host(host, peek=True)
+            host_tasks[host.name] = iterator.get_next_task_for_host(host, peek=True)
         display.debug("done building task lists")
 
         num_setups = 0
@@ -63,19 +62,26 @@ class StrategyModule(StrategyBase):
         num_rescue = 0
         num_always = 0
 
-        lowest_cur_block = len(iterator._blocks)
-
         display.debug("counting tasks in each state of execution")
-        for (k, v) in iteritems(host_tasks):
-            if v is None:
-                continue
+        host_tasks_to_run = [(host, state_task)
+                             for host, state_task in iteritems(host_tasks)
+                             if state_task and state_task[1]]
 
+        if host_tasks_to_run:
+            lowest_cur_block = min(
+                (s.cur_block for h, (s, t) in host_tasks_to_run
+                if s.run_state != PlayIterator.ITERATING_COMPLETE))
+        else:
+            # empty host_tasks_to_run will just run till the end of the function
+            # without ever touching lowest_cur_block
+            lowest_cur_block = None
+
+        for (k, v) in host_tasks_to_run:
             (s, t) = v
-            if t is None:
-                continue
 
-            if s.cur_block < lowest_cur_block and s.run_state != PlayIterator.ITERATING_COMPLETE:
-                lowest_cur_block = s.cur_block
+            if s.cur_block > lowest_cur_block:
+                # Not the current block, ignore it
+                continue
 
             if s.run_state == PlayIterator.ITERATING_SETUP:
                 num_setups += 1
@@ -156,7 +162,7 @@ class StrategyModule(StrategyBase):
 
             try:
                 display.debug("getting the remaining hosts for this loop")
-                hosts_left = [host for host in self._inventory.get_hosts(iterator._play.hosts) if host.name not in self._tqm._unreachable_hosts]
+                hosts_left = [host for host in self._inventory.get_hosts(iterator._play.hosts) if host.name not in self._tqm._unreachable_hosts and not iterator.is_failed(host)]
                 display.debug("done getting the remaining hosts for this loop")
 
                 # queue up this task for each host in the inventory
@@ -169,6 +175,9 @@ class StrategyModule(StrategyBase):
                 # skip control
                 skip_rest   = False
                 choose_step = True
+
+                # flag set if task is set to any_errors_fatal
+                any_errors_fatal = False
 
                 results = []
                 for (host, task) in host_tasks:
@@ -187,12 +196,10 @@ class StrategyModule(StrategyBase):
 
                     try:
                         action = action_loader.get(task.action, class_only=True)
-                        if task.run_once or getattr(action, 'BYPASS_HOST_LOOP', False):
-                            run_once = True
                     except KeyError:
                         # we don't care here, because the action may simply not have a
                         # corresponding action plugin
-                        pass
+                        action = None
 
                     # check to see if this task should be skipped, due to it being a member of a
                     # role which has already run (and whether that role allows duplicate execution)
@@ -219,6 +226,11 @@ class StrategyModule(StrategyBase):
                         self.add_tqm_variables(task_vars, play=iterator._play)
                         templar = Templar(loader=self._loader, variables=task_vars)
                         display.debug("done getting variables")
+
+                        run_once = templar.template(task.run_once) or action and getattr(action, 'BYPASS_HOST_LOOP', False)
+
+                        if task.any_errors_fatal or run_once:
+                            any_errors_fatal = True
 
                         if not callback_sent:
                             display.debug("sending task start callback, copying the task so we can template it temporarily")
@@ -273,6 +285,7 @@ class StrategyModule(StrategyBase):
                 except AnsibleError as e:
                     return False
 
+                include_failure = False
                 if len(included_files) > 0:
                     display.debug("we have included files to process")
                     noop_task = Task()
@@ -318,6 +331,7 @@ class StrategyModule(StrategyBase):
                                 self._tqm._failed_hosts[host.name] = True
                                 iterator.mark_host_failed(host)
                             display.error(e, wrap_text=False)
+                            include_failure = True
                             continue
 
                     # finally go through all of the hosts and append the
@@ -331,6 +345,23 @@ class StrategyModule(StrategyBase):
                     display.debug("done processing included files")
 
                 display.debug("results queue empty")
+
+                display.debug("checking for any_errors_fatal")
+                failed_hosts = []
+                for res in results:
+                    if res.is_failed() or res.is_unreachable():
+                        failed_hosts.append(res._host.name)
+
+                # if any_errors_fatal and we had an error, mark all hosts as failed
+                if any_errors_fatal and len(failed_hosts) > 0:
+                    for host in hosts_left:
+                        # don't double-mark hosts, or the iterator will potentially
+                        # fail them out of the rescue/always states
+                        if host.name not in failed_hosts:
+                            self._tqm._failed_hosts[host.name] = True
+                            iterator.mark_host_failed(host)
+                display.debug("done checking for any_errors_fatal")
+
             except (IOError, EOFError) as e:
                 display.debug("got IOError/EOFError in task loop: %s" % e)
                 # most likely an abort, return failed

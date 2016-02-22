@@ -28,6 +28,7 @@ from ansible.compat.six import string_types
 
 from ansible import constants as C
 from ansible.vars import strip_internal_keys
+from ansible.utils.color import stringc
 from ansible.utils.unicode import to_unicode
 
 try:
@@ -38,6 +39,11 @@ except ImportError:
 
 __all__ = ["CallbackBase"]
 
+try:
+    from __main__ import cli
+except ImportError:
+    # using API w/o cli 
+    cli = False
 
 class CallbackBase:
 
@@ -52,6 +58,11 @@ class CallbackBase:
             self._display = display
         else:
             self._display = global_display
+
+        if cli:
+            self._options = cli.options
+        else:
+            self._options = None
 
         if self._display.verbosity >= 4:
             name = getattr(self, 'CALLBACK_NAME', 'unnamed')
@@ -106,7 +117,6 @@ class CallbackBase:
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter('ignore')
-                    ret = []
                     if 'dst_binary' in diff:
                         ret.append("diff skipped: destination file appears to be binary\n")
                     if 'src_binary' in diff:
@@ -116,6 +126,10 @@ class CallbackBase:
                     if 'src_larger' in diff:
                         ret.append("diff skipped: source file size is greater than %d\n" % diff['src_larger'])
                     if 'before' in diff and 'after' in diff:
+                        # format complex structures into 'files'
+                        for x in ['before', 'after']:
+                            if isinstance(diff[x], dict):
+                                diff[x] = json.dumps(diff[x], sort_keys=True, indent=4)
                         if 'before_header' in diff:
                             before_header = "before: %s" % diff['before_header']
                         else:
@@ -124,12 +138,30 @@ class CallbackBase:
                             after_header = "after: %s" % diff['after_header']
                         else:
                             after_header = 'after'
-                        differ = difflib.unified_diff(to_unicode(diff['before']).splitlines(True), to_unicode(diff['after']).splitlines(True), before_header, after_header, '', '', 10)
-                        ret.extend(list(differ))
-                        ret.append('\n')
-                    return u"".join(ret)
+                        differ = difflib.unified_diff(to_unicode(diff['before']).splitlines(True),
+                                                      to_unicode(diff['after']).splitlines(True),
+                                                      fromfile=before_header,
+                                                      tofile=after_header,
+                                                      fromfiledate='',
+                                                      tofiledate='',
+                                                      n=C.DIFF_CONTEXT)
+                        has_diff = False
+                        for line in differ:
+                            has_diff = True
+                            if line.startswith('+'):
+                                line = stringc(line, C.COLOR_DIFF_ADD)
+                            elif line.startswith('-'):
+                                line = stringc(line, C.COLOR_DIFF_REMOVE)
+                            elif line.startswith('@@'):
+                                line = stringc(line, C.COLOR_DIFF_LINES)
+                            ret.append(line)
+                        if has_diff:
+                            ret.append('\n')
+                    if 'prepared' in diff:
+                        ret.append(to_unicode(diff['prepared']))
             except UnicodeDecodeError:
                 ret.append(">> the files are different, but the diff library cannot compare unicode strings\n\n")
+        return u''.join(ret)
 
     def _get_item(self, result):
         if result.get('_ansible_no_log', False):
